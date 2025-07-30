@@ -1,0 +1,6 @@
+MCP Server list of use case using js one by one
+JavaScript and Model Context Protocol (MCP) server use cases
+The Model Context Protocol (MCP) allows AI models to interact with external tools and 
+data sources, extending their capabilities beyond their inherent abilities. JavaScript, 
+particularly with Node.js, plays a key role in building these MCP servers and 
+facilitating various use cases: 

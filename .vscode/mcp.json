@@ -1,0 +1,195 @@
+{
+    "servers": {
+        "fileSystem": {
+            "command": "npm run file-server",
+            "type": "stdio",
+            "endpoints": {
+                "read": {
+                    "description": "📖 Read contents of a file",
+                    "parameters": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the file to read"
+                        }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string" },
+                            "formatting": {
+                                "type": "object",
+                                "properties": {
+                                    "header": { "type": "string", "default": "📖 File Contents:" },
+                                    "separator": { "type": "string", "default": "---------------" }
+                                }
+                            }
+                        },
+                        "description": "The contents of the file with formatting"
+                    }
+                },
+                "list": {
+                    "description": "📂 List contents of a directory with metadata",
+                    "parameters": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the directory to list"
+                        }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "header": { "type": "string", "default": "📂 Directory Contents:" },
+                            "separator": { "type": "string", "default": "-------------------" },
+                            "files": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "icon": { "type": "string", "default": "📄" },
+                                        "name": { "type": "string" },
+                                        "size": { "type": "number" },
+                                        "created": { "type": "string" },
+                                        "modified": { "type": "string" },
+                                        "isDirectory": { "type": "boolean" },
+                                        "isFile": { "type": "boolean" },
+                                        "path": { "type": "string" }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "List of files and directories with formatting"
+                    }
+                },
+                "search": {
+                    "description": "🔍 Search for files in a directory",
+                    "parameters": {
+                        "path": {
+                            "type": "string",
+                            "description": "Directory to search in"
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Search pattern to match against file names"
+                        }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "header": { "type": "string", "default": "🔍 Search Results:" },
+                            "separator": { "type": "string", "default": "---------------" },
+                            "files": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "icon": { "type": "string", "default": "📄" },
+                                        "name": { "type": "string" },
+                                        "path": { "type": "string" }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "List of matching files with formatting"
+                    }
+                },
+                "logs": {
+                    "description": "📋 View server logs",
+                    "parameters": {},
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "header": { "type": "string", "default": "📋 Server Logs:" },
+                            "separator": { "type": "string", "default": "-------------" },
+                            "content": { "type": "string" }
+                        },
+                        "description": "Server log contents with formatting"
+                    }
+                }
+            }
+        },
+        "weatherMock": {
+            "command": "npm run weather-server",
+            "type": "stdio",
+            "endpoints": {
+                "current": {
+                    "description": "🌡️ Get current weather (mock)",
+                    "parameters": {
+                        "city": { "type": "string", "description": "City name" }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "city": { "type": "string" },
+                            "temperature": { "type": "number" },
+                            "conditions": { "type": "string" },
+                            "humidity": { "type": "number" },
+                            "windSpeed": { "type": "number" }
+                        }
+                    }
+                },
+                "forecast": {
+                    "description": "📅 Get 5-day forecast (mock)",
+                    "parameters": {
+                        "city": { "type": "string", "description": "City name" }
+                    },
+                    "returns": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "date": { "type": "string" },
+                                "temperature": {
+                                    "type": "object",
+                                    "properties": {
+                                        "min": { "type": "number" },
+                                        "max": { "type": "number" }
+                                    }
+                                },
+                                "conditions": { "type": "string" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "weatherApi": {
+            "command": "npm run weather-api-server",
+            "type": "stdio",
+            "endpoints": {
+                "current": {
+                    "description": "🌡️ Get current weather (real API)",
+                    "parameters": {
+                        "city": { "type": "string", "description": "City name" }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "city": { "type": "string" },
+                            "temperature": { "type": "number" },
+                            "windspeed": { "type": "number" },
+                            "winddirection": { "type": "number" },
+                            "weathercode": { "type": "number" },
+                            "time": { "type": "string" }
+                        }
+                    }
+                },
+                "forecast": {
+                    "description": "📅 Get 5-day forecast (real API)",
+                    "parameters": {
+                        "city": { "type": "string", "description": "City name" }
+                    },
+                    "returns": {
+                        "type": "object",
+                        "properties": {
+                            "city": { "type": "string" },
+                            "time": { "type": "array", "items": { "type": "string" } },
+                            "temperature_2m_max": { "type": "array", "items": { "type": "number" } },
+                            "temperature_2m_min": { "type": "array", "items": { "type": "number" } },
+                            "weathercode": { "type": "array", "items": { "type": "number" } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

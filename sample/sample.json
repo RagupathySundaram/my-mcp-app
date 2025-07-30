@@ -1,0 +1,10 @@
+{
+  "sampleKey": "sampleValue",
+  "nestedObject": {
+    "key1": "value1",
+    "key2": "value2"
+  },
+  "arrayExample": [1, 2, 3, 4, 5],
+  "booleanExample": true,
+  "nullExample": null
+}
