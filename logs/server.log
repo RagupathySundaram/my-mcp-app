@@ -1,6 +1,0 @@
-[2025-07-30T18:18:19.724Z] [ACCESS] [FileServer] Received /list request for path: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:19 pm)
-[2025-07-30T18:18:19.746Z] [INFO] [FileServer] Successfully listed directory: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:19 pm)
-[2025-07-30T18:18:31.023Z] [ACCESS] [FileServer] Received /list request for path: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:31 pm)
-[2025-07-30T18:18:31.025Z] [INFO] [FileServer] Successfully listed directory: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:31 pm)
-[2025-07-30T18:18:42.547Z] [ACCESS] [FileServer] Received /list request for path: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:42 pm)
-[2025-07-30T18:18:42.553Z] [INFO] [FileServer] Successfully listed directory: C:\Users\ragup\myworkspace\my-mcp-app\sample (30/7/2025, 11:48:42 pm)
