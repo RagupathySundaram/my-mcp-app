@@ -4,7 +4,7 @@ import * as url from 'url';
 import * as path from 'path';
 import { Logger } from '../utils/logger.js';
 
-const logger = new Logger('FileServer', 'server.log');
+const logger = new Logger('FileServer', 'file-server.log');
 
 interface FileMetadata {
     name: string;
@@ -51,6 +51,13 @@ const server = http.createServer(async (req, res) => {
     const pattern = parsedUrl.query.pattern as string;
 
     await logger.log(`Received ${parsedUrl.pathname} request for path: ${reqPath || 'none'}`, 'ACCESS');
+
+    // Health check endpoint
+    if (parsedUrl.pathname === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok' }));
+        return;
+    }
 
     if (!reqPath && parsedUrl.pathname !== '/logs') {
         res.writeHead(400);

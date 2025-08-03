@@ -156,7 +156,7 @@
             "command": "npm run weather-api-server",
             "type": "stdio",
             "endpoints": {
-                "current": {
+                "weather": {
                     "description": "🌡️ Get current weather (real API)",
                     "parameters": {
                         "city": { "type": "string", "description": "City name" }

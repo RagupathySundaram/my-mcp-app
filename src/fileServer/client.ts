@@ -1,9 +1,18 @@
 import * as readline from 'readline';
-import * as fs from 'fs/promises';
+import fetch from 'node-fetch';
+const BASE_URL = process.env.FILE_SERVER_URL || 'http://localhost:3000';
 import * as path from 'path';
 import { Logger } from '../utils/logger.js';
 
-const logger = new Logger('FileClient', 'client.log');
+function handleServerError(error: any, context: string) {
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('fetch failed')) {
+        console.error(`❌ Cannot connect to file server. Please make sure the server is running and accessible at ${BASE_URL}`);
+    } else {
+        console.error(`❌ Error ${context} from server:`, error.message);
+    }
+}
+
+const logger = new Logger('FileClient', 'file-client.log');
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -23,27 +32,11 @@ const printHelp = () => {
 };
 
 async function getFileInfo(filePath: string) {
-    try {
-        const stats = await fs.stat(filePath);
-        return {
-            size: `${(stats.size / 1024).toFixed(2)} KB`,
-            created: stats.birthtime.toLocaleString(),
-            modified: stats.mtime.toLocaleString(),
-            isDirectory: stats.isDirectory(),
-            isFile: stats.isFile()
-        };
-    } catch (error: any) {
-        throw new Error(`Could not get file info: ${error.message}`);
-    }
+    throw new Error('Direct file info access is not allowed. Use the server endpoint instead.');
 }
 
 async function findFiles(searchPath: string, pattern: string) {
-    try {
-        const files = await fs.readdir(searchPath);
-        return files.filter(file => file.includes(pattern));
-    } catch (error: any) {
-        throw new Error(`Could not search files: ${error.message}`);
-    }
+    throw new Error('Direct file search is not allowed. Use the server endpoint instead.');
 }
 
 async function main() {
@@ -53,9 +46,24 @@ async function main() {
     rl.on('line', async (input) => {
         if (input.toLowerCase() === 'quit') {
             console.log('👋 Goodbye!');
-            await logger.log('Client session ended', 'CLIENT');
+            await logger.log('Client session ended', 'FILE_CLIENT');
             rl.close();
             process.exit(0);
+        }
+
+        // Check if server is up before processing command
+        let serverUp = true;
+        try {
+            const healthResponse = await fetch(`${BASE_URL}/health`);
+            if (!healthResponse.ok) serverUp = false;
+        } catch (err: any) {
+            serverUp = false;
+            handleServerError(err, 'checking server health');
+        }
+        if (!serverUp) {
+            handleServerError(new Error('ECONNREFUSED'), 'checking server health');
+            console.log('\n🚀 Enter a command (or "help" for commands):');
+            return;
         }
 
         const [command, ...args] = input.split(' ');
@@ -63,92 +71,125 @@ async function main() {
 
         try {
             switch (command.toLowerCase()) {
-                case 'read':
+                case 'read': {
                     if (!filePath) {
                         console.log('❌ Please provide a file path to read');
                         await logger.log('Error: No file path provided for read command', 'ERROR');
                         break;
                     }
-                    const content = await fs.readFile(filePath, 'utf-8');
-                    console.log('\n📖 File Contents:');
-                    console.log('---------------');
-                    console.log(content);
-                    await logger.log(`Successfully read file: ${filePath}`, 'CLIENT');
+                    const response = await fetch(`${BASE_URL}/read?path=${encodeURIComponent(filePath)}`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json() as {
+                        formatting: { header: string; separator: string };
+                        content: string;
+                    };
+                    console.log(`\n${result.formatting.header}`);
+                    console.log(result.formatting.separator);
+                    console.log(result.content);
+                    await logger.log(`Successfully read file: ${filePath}`, 'FILE_CLIENT');
                     break;
-
-                case 'list':
+                }
+                case 'list': {
                     if (!filePath) {
                         console.log('❌ Please provide a directory path to list');
                         await logger.log('Error: No directory path provided for list command', 'ERROR');
                         break;
                     }
-                    const files = await fs.readdir(filePath);
-                    console.log('\n📂 Directory Contents:');
-                    console.log('-------------------');
-                    files.forEach(file => {
-                        console.log(`  📄 ${file}`);
+                    const response = await fetch(`${BASE_URL}/list?path=${encodeURIComponent(filePath)}`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json() as {
+                        header: string;
+                        separator: string;
+                        files: { icon: string; name: string }[];
+                    };
+                    console.log(`\n${result.header}`);
+                    console.log(result.separator);
+                    result.files.forEach((file) => {
+                        console.log(`  ${file.icon} ${file.name}`);
                     });
-                    await logger.log(`Successfully listed directory: ${filePath}`, 'CLIENT');
+                    await logger.log(`Successfully listed directory: ${filePath}`, 'FILE_CLIENT');
                     break;
-
-                case 'find':
+                }
+                case 'find': {
                     if (args.length < 2) {
                         console.log('❌ Usage: find <directory> <pattern>');
                         await logger.log('Error: Invalid arguments for find command', 'ERROR');
                         break;
                     }
                     const [searchPath, pattern] = [args[0], args.slice(1).join(' ')];
-                    const foundFiles = await findFiles(searchPath, pattern);
-                    console.log('\n🔍 Search Results:');
-                    console.log('---------------');
-                    if (foundFiles.length === 0) {
+                    const response = await fetch(`${BASE_URL}/search?path=${encodeURIComponent(searchPath)}&pattern=${encodeURIComponent(pattern)}`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json() as {
+                        header: string;
+                        separator: string;
+                        files: { icon: string; name: string }[];
+                    };
+                    console.log(`\n${result.header}`);
+                    console.log(result.separator);
+                    if (result.files.length === 0) {
                         console.log('  No files found matching the pattern');
-                        await logger.log(`No files found matching pattern "${pattern}" in ${searchPath}`, 'CLIENT');
+                        await logger.log(`No files found matching pattern "${pattern}" in ${searchPath}`, 'FILE_CLIENT');
                     } else {
-                        foundFiles.forEach(file => console.log(`  📄 ${file}`));
-                        await logger.log(`Found ${foundFiles.length} files matching pattern "${pattern}" in ${searchPath}`, 'CLIENT');
+                        result.files.forEach((file) => console.log(`  ${file.icon} ${file.name}`));
+                        await logger.log(`Found ${result.files.length} files matching pattern "${pattern}" in ${searchPath}`, 'FILE_CLIENT');
                     }
                     break;
-
-                case 'info':
+                }
+                case 'info': {
                     if (!filePath) {
                         console.log('❌ Please provide a file path to get info');
                         await logger.log('Error: No file path provided for info command', 'ERROR');
                         break;
                     }
-                    const info = await getFileInfo(filePath);
+                    const response = await fetch(`${BASE_URL}/read?path=${encodeURIComponent(filePath)}`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json() as {
+                        info?: {
+                            isDirectory: boolean;
+                            size: string;
+                            created: string;
+                            modified: string;
+                        };
+                        content?: string;
+                    };
+                    // Assuming server returns file info in formatting or content
                     console.log('\n📊 File Information:');
                     console.log('-----------------');
-                    console.log(`  Type: ${info.isDirectory ? 'Directory' : 'File'}`);
-                    console.log(`  Size: ${info.size}`);
-                    console.log(`  Created: ${info.created}`);
-                    console.log(`  Last Modified: ${info.modified}`);
-                    await logger.log(`Retrieved info for ${filePath}`, 'CLIENT');
-                    break;
-
-                case 'logs':
-                    try {
-                        const logFile = path.join('logs', 'server.log');
-                        const logs = await fs.readFile(logFile, 'utf-8');
-                        console.log('\n📋 Server Logs:');
-                        console.log('-------------');
-                        console.log(logs || 'No logs available');
-                    } catch (error: any) {
-                        console.error('❌ Could not read logs:', error.message);
+                    if (result.info) {
+                        console.log(`  Type: ${result.info.isDirectory ? 'Directory' : 'File'}`);
+                        console.log(`  Size: ${result.info.size}`);
+                        console.log(`  Created: ${result.info.created}`);
+                        console.log(`  Last Modified: ${result.info.modified}`);
+                    } else if (result.content) {
+                        console.log(result.content);
                     }
+                    await logger.log(`Retrieved info for ${filePath}`, 'FILE_CLIENT');
                     break;
-
-                case 'help':
+                }
+                case 'logs': {
+                    const response = await fetch(`${BASE_URL}/logs`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const result = await response.json() as {
+                        header: string;
+                        separator: string;
+                        content?: string;
+                    };
+                    console.log(`\n${result.header}`);
+                    console.log(result.separator);
+                    console.log(result.content || 'No logs available');
+                    break;
+                }
+                case 'help': {
                     printHelp();
                     break;
-
-                default:
+                }
+                default: {
                     console.log('❌ Unknown command. Type "help" to see available commands');
+                }
             }
         } catch (error: any) {
-            console.error('❌ Error:', error.message);
+            handleServerError(error, command);
         }
-        
         // Add a prompt for the next command
         console.log('\n🚀 Enter a command (or "help" for commands):');
     });

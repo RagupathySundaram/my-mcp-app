@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-export type LogType = 'INFO' | 'ERROR' | 'ACCESS' | 'CLIENT';
+export type LogType = 'INFO' | 'ERROR' | 'ACCESS' | 'FILE_CLIENT' | 'CLIENT';
 
 export class Logger {
     private logsDir: string;
@@ -50,5 +50,10 @@ export class Logger {
         } catch (error: any) {
             throw new Error(`Could not read logs: ${error.message}`);
         }
+    }
+
+    async getLogHistory(maxLines?: number): Promise<string> {
+        // Alias for readLogs, for compatibility with server.ts
+        return this.readLogs(maxLines);
     }
 }

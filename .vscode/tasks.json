@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run File Server",
+      "type": "shell",
+      "command": "npm run file-server",
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "detail": "Start the MCP file server (stdio mode)"
+    }
+  ]
+}
