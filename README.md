@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+
 # my-mcp-app
 
 This app is a complete Model Context Protocol (MCP) ecosystem in Node.js/TypeScript. It includes:
@@ -11,20 +12,22 @@ This app is a complete Model Context Protocol (MCP) ecosystem in Node.js/TypeScr
 
 MCP (Model Context Protocol) is a protocol for building modular, tool-using AI agents that interact with servers, tools, and APIs in a structured way.
 
-
 ## Quick Start
 
 1. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 2. **Build the project:**
+
    ```bash
    npm run build
    ```
 
 3. **Run servers and clients:**
+
    ```bash
    # File server and client
    npm run file-server
@@ -51,6 +54,7 @@ MCP (Model Context Protocol) is a protocol for building modular, tool-using AI a
 ## Extending to Agentic AI & Learning Platform
 
 See [ROADMAP.md](./ROADMAP.md) for:
+
 - Steps to expand this app into a multi-agentic AI platform
 - Integrating LangGraph and other frameworks
 - Hosting as a learning app with multiple AI agents
@@ -58,4 +62,5 @@ See [ROADMAP.md](./ROADMAP.md) for:
 ## License
 
 This project is part of the MCP ecosystem and follows the same licensing terms.
->>>>>>> 816e732 (Initial commit of my new project)
+
+> > > > > > > 816e732 (Initial commit of my new project)

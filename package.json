@@ -9,10 +9,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "weather-server": "npm run build && node build/weather/server.js",
+    "format": "prettier --write .",
     "weather-client": "npm run build && node build/weather/client.js",
-    "weather-api-server": "npm run build && node build/weather/serverApi.js",
-    "weather-api-client": "npm run build && node build/weather/clientApi.js",
+    "weather-service": "npm run build && node build/weather/service.js",
     "file-server": "npm run build && node build/fileServer/server.js",
     "file-client": "npm run build && node build/fileServer/client.js"
   },
@@ -22,12 +21,14 @@
   "description": "",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
+    "dotenv": "^16.3.1",
     "node-fetch": "^3.3.2",
     "readline": "^1.3.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.0.14",
+    "prettier": "^2.8.8",
     "typescript": "^5.8.3"
   }
 }

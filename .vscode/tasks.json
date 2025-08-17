@@ -9,5 +9,19 @@
       "problemMatcher": ["$tsc"],
       "detail": "Start the MCP file server (stdio mode)"
     }
+    ,
+    {
+      "label": "Start Weather Service",
+      "type": "shell",
+      "command": "npm run weather-service",
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "Start the MCP weather service (stdio mode)"
+    },
+    {
+      "label": "Run MCP Services",
+      "dependsOn": ["Run File Server", "Start Weather Service"],
+      "runOptions": { "runOn": "default" }
+    }
   ]
 }
