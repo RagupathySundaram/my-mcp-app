@@ -73,7 +73,7 @@ export async function getLatLon(
     }
   }
 
-  console.info(`apiServices.getLatLon: no geocoding results for '${city}'`);
+  console.error(`apiServices.getLatLon: no geocoding results for '${city}'`);
   return null;
 }
 

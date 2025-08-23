@@ -1,13 +1,8 @@
 import { z } from "zod";
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as fs from "fs/promises";
 import * as path from "path";
-import { pathToFileURL } from "url";
-import { Logger } from "../utils/logger.js";
-
-const logger = new Logger("FileServer", "file-server.log");
 
 interface FileMetadata {
   name: string;
@@ -51,43 +46,29 @@ async function searchFiles(
 }
 
 export function registerFileTools(server: McpServer) {
+  // Read file tool
   server.tool(
     "read",
     "Read contents of a file",
-    {
-      path: z.string().describe("Path to the file to read"),
-    },
+    { path: z.string().describe("Path to the file to read") },
     async ({ path }) => {
       const content = await fs.readFile(path, "utf-8");
-      await logger.log(`Successfully read file: ${path}`, "INFO");
-      return {
-        content: [
-          {
-            type: "text",
-            text: content,
-          },
-        ],
-      };
+      return { content: [{ type: "text", text: content }] };
     }
   );
 
+  // List directory tool
   server.tool(
     "list",
     "List contents of a directory with metadata",
-    {
-      path: z.string().describe("Path to the directory to list"),
-    },
+    { path: z.string().describe("Path to the directory to list") },
     async ({ path: inputPath }) => {
       const dir = (inputPath || "").toString().trim();
       const absDir = path.resolve(dir);
       const files = await fs.readdir(absDir, { withFileTypes: true });
       const fileList = await Promise.all(
-        files.map(
-          async (file) => await getFileMetadata(path.join(absDir, file.name))
-        )
+        files.map((file) => getFileMetadata(path.join(absDir, file.name)))
       );
-      await logger.log(`Listed directory: ${absDir}`, "INFO");
-      // Format into simple, readable lines
       const human = (n: number) => {
         if (n < 1024) return `${n} B`;
         const units = ["KB", "MB", "GB", "TB"];
@@ -99,21 +80,21 @@ export function registerFileTools(server: McpServer) {
         } while (v >= 1024 && i < units.length - 1);
         return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
       };
-      const lines: string[] = [];
-      lines.push(`Directory: ${absDir}`);
-      lines.push(`Items: ${fileList.length}`);
-      for (const f of fileList) {
-        const tag = f.isDirectory ? "DIR " : "FILE";
-        const name = f.isDirectory ? `${f.name}/` : f.name;
-        const size = f.isDirectory ? "-" : human(f.size);
-        lines.push(
-          `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}`
-        );
-      }
+      const lines: string[] = [
+        `Directory: ${absDir}`,
+        `Items: ${fileList.length}`,
+        ...fileList.map((f) => {
+          const tag = f.isDirectory ? "DIR " : "FILE";
+          const name = f.isDirectory ? `${f.name}/` : f.name;
+          const size = f.isDirectory ? "-" : human(f.size);
+          return `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}`;
+        }),
+      ];
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
 
+  // Search files tool
   server.tool(
     "search",
     "Search for files in a directory",
@@ -127,14 +108,6 @@ export function registerFileTools(server: McpServer) {
       const dir = (inputPath || "").toString().trim();
       const absDir = path.resolve(dir);
       const results = await searchFiles(absDir, pattern || "");
-      await logger.log(
-        `Searched files in: ${absDir} for pattern: ${pattern}`,
-        "INFO"
-      );
-      const lines: string[] = [];
-      lines.push(`Search in: ${absDir}`);
-      lines.push(`Pattern: ${pattern || ""}`);
-      lines.push(`Matches: ${results.length}`);
       const human = (n: number) => {
         if (n < 1024) return `${n} B`;
         const units = ["KB", "MB", "GB", "TB"];
@@ -146,57 +119,40 @@ export function registerFileTools(server: McpServer) {
         } while (v >= 1024 && i < units.length - 1);
         return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
       };
-      for (const f of results) {
-        const tag = f.isDirectory ? "DIR " : "FILE";
-        const name = f.isDirectory ? `${f.name}/` : f.name;
-        const size = f.isDirectory ? "-" : human(f.size);
-        lines.push(
-          `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}  path: ${f.path}`
-        );
-      }
+      const lines: string[] = [
+        `Search in: ${absDir}`,
+        `Pattern: ${pattern || ""}`,
+        `Matches: ${results.length}`,
+        ...results.map((f) => {
+          const tag = f.isDirectory ? "DIR " : "FILE";
+          const name = f.isDirectory ? `${f.name}/` : f.name;
+          const size = f.isDirectory ? "-" : human(f.size);
+          return `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}  path: ${f.path}`;
+        }),
+      ];
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
-
-  // Use a namespaced tool name to avoid collisions with other services
-  server.tool("file_logs", "View file server logs", {}, async () => {
-    const logContent = await logger.readLogs();
-    return {
-      content: [
-        {
-          type: "text",
-          text: logContent,
-        },
-      ],
-    };
-  });
 }
 
-// If executed directly, start a standalone file server process
-const isDirect = (() => {
+// Start the server if run directly
+
+(async function main() {
+  const server = new McpServer({
+    name: "fileSystem",
+    version: "1.0.0",
+    capabilities: {
+      resources: {},
+      tools: {},
+    },
+  });
+  registerFileTools(server);
   try {
-    const href = pathToFileURL(process.argv[1]).href;
-    return import.meta.url === href;
-  } catch {
-    return false;
-  }
-})();
-if (isDirect) {
-  (async function main() {
-    const server = new McpServer({
-      name: "fileSystem",
-      version: "1.0.0",
-      capabilities: {
-        resources: {},
-        tools: {},
-      },
-    });
-    registerFileTools(server);
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("File MCP Server running on stdio");
-  })().catch((error) => {
+  } catch (error) {
     console.error("Fatal error in main():", error);
     process.exit(1);
-  });
-}
+  }
+})();

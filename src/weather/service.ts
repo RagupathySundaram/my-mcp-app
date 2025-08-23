@@ -2,25 +2,88 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { getMockCurrent, getMockForecast, getMockLogs } from "./mockData.js";
-import { fetchCurrent, fetchForecast, getApiLogs } from "./apiServices.js";
-import { Logger } from "../utils/logger.js";
-import * as fs from "fs";
-import * as path from "path";
-import { pathToFileURL } from "url";
+import { fetchCurrent, fetchForecast } from "./apiServices.js";
+
 import { getConditionLabel } from "../utils/weatherCodes.js";
 
-// Synchronous fallback logger file used when running as a child process.
-const syncLogFile = path.join("logs", "service-child.log");
-function syncLog(message: string) {
-  try {
-    const now = new Date();
-    const timestamp = now.toISOString();
-    const entry = `[${timestamp}] [ERROR] [WeatherService] ${message} (${now.toLocaleString()})\n`;
-    try {
-      fs.mkdirSync(path.dirname(syncLogFile), { recursive: true });
-    } catch {}
-    fs.appendFileSync(syncLogFile, entry, { encoding: "utf8" });
-  } catch {}
+// Helper to format current weather output
+function formatCurrentWeather(apiResult: any, city: string): string {
+  const lines: string[] = [];
+  const apiDomain =
+    process.env["WEATHER_API_BASE"] || "https://api.open-meteo.com";
+  if (apiResult.source === "api" && apiResult.data?.current_weather) {
+    const cw = apiResult.data.current_weather;
+    const units = apiResult.data.current_weather_units || {};
+    const cond = getConditionLabel(cw.weathercode);
+    const isDay = cw.is_day ? "Day" : "Night";
+    lines.push(`Weather - ${city}`);
+    lines.push(`Time: ${cw.time} (${isDay})`);
+    lines.push(`Temperature: ${cw.temperature}${units.temperature || "°C"}`);
+    lines.push(`Condition: ${cond}`);
+    lines.push(
+      `Wind: ${cw.windspeed}${units.windspeed || " km/h"} @ ${
+        cw.winddirection
+      }°`
+    );
+    lines.push(`Note: Data from ${apiDomain}`);
+  } else if (apiResult.source === "mock") {
+    const d = apiResult.data;
+    lines.push(`Weather - ${city} (Mock Data)`);
+    lines.push(`Temperature: ${d.temperature}°C`);
+    lines.push(`Condition: ${d.conditions}`);
+    lines.push(`Humidity: ${d.humidity}%`);
+    lines.push(`Wind: ${d.windSpeed} km/h`);
+    lines.push(`Note: (API unavailable or failed) Showing mock data`);
+  } else {
+    lines.push(`Weather - ${city}: unavailable`);
+    if (apiResult.note) lines.push(`Note: ${apiResult.note}`);
+  }
+  return lines.join("\n");
+}
+
+// Helper to format forecast output
+function formatForecast(apiResult: any, city: string): string {
+  let lines: string[] = [];
+  const apiDomain =
+    process.env["WEATHER_API_BASE"] || "https://api.open-meteo.com";
+  if (apiResult.source === "api" && apiResult.data?.daily) {
+    const d = apiResult.data.daily;
+    const units = (apiResult.data as any).daily_units || {};
+    const len = Math.min(
+      d.time?.length || 0,
+      d.temperature_2m_max?.length || 0,
+      d.temperature_2m_min?.length || 0,
+      d.weathercode?.length || 0
+    );
+    lines.push(`5-day Forecast - ${city}`);
+    for (let i = 0; i < len; i++) {
+      const date = d.time[i];
+      const tmax = d.temperature_2m_max[i];
+      const tmin = d.temperature_2m_min[i];
+      const cond = getConditionLabel(d.weathercode[i]);
+      const unit = units.temperature_2m_max || "°C";
+      lines.push(
+        `${date}: min ${tmin}${
+          units.temperature_2m_min || unit
+        } / max ${tmax}${unit}, ${cond}`
+      );
+    }
+    lines.push(`Note: Data from ${apiDomain}`);
+  } else if (apiResult.source === "mock" && Array.isArray(apiResult.data)) {
+    lines.push(`5-day Forecast - ${city} (Mock Data)`);
+    for (const day of apiResult.data) {
+      lines.push(
+        `${day.date}: min ${day.temperature.min}°C / max ${day.temperature.max}°C, ${day.conditions}`
+      );
+    }
+    let reason = "Note: Showing mock data (API unavailable or failed)";
+    if (apiResult.note) reason += `: ${apiResult.note}`;
+    lines.push(reason);
+  } else {
+    lines.push(`5-day Forecast - ${city}: unavailable`);
+    if (apiResult.note) lines.push(`Note: ${apiResult.note}`);
+  }
+  return lines.join("\n");
 }
 
 const withApiRetry = async <T>(
@@ -46,6 +109,8 @@ export function registerWeatherTools(server: McpServer) {
   server.registerTool(
     "current",
     {
+      description:
+        "☀️ Get current weather (service). Returns { source, note?, data }",
       inputSchema: {
         city: z.string().describe("City name"),
       },
@@ -72,37 +137,8 @@ export function registerWeatherTools(server: McpServer) {
           data: getMockCurrent(sanitized),
         };
       }
-      // Build a friendly text summary
-      let text: string;
-      if (apiResult.source === "api" && apiResult.data?.current_weather) {
-        const cw = apiResult.data.current_weather;
-        const units = apiResult.data.current_weather_units || {};
-        const cond = getConditionLabel(cw.weathercode);
-        const isDay = cw.is_day ? "Day" : "Night";
-        text = [
-          `Weather - ${sanitized}`,
-          `Time: ${cw.time} (${isDay})`,
-          `Temperature: ${cw.temperature}${units.temperature || "°C"}`,
-          `Condition: ${cond}`,
-          `Wind: ${cw.windspeed}${units.windspeed || " km/h"} @ ${
-            cw.winddirection
-          }°`,
-        ].join("\n");
-      } else if (apiResult.source === "mock") {
-        const d = apiResult.data;
-        text = [
-          `Weather - ${sanitized} (Mock)`,
-          `Temperature: ${d.temperature}°C`,
-          `Condition: ${d.conditions}`,
-          `Humidity: ${d.humidity}%`,
-          `Wind: ${d.windSpeed} km/h`,
-        ].join("\n");
-      } else {
-        text = `Weather - ${sanitized}: unavailable`;
-      }
-      if ((apiResult as any).note) {
-        text += `\nNote: ${(apiResult as any).note}`;
-      }
+      // Build a friendly text summary using a helper
+      const text = formatCurrentWeather(apiResult, sanitized);
       return { content: [{ type: "text", text }] };
     }
   );
@@ -138,127 +174,27 @@ export function registerWeatherTools(server: McpServer) {
           data: getMockForecast(sanitized),
         };
       }
-      // Build a friendly 5-day forecast summary
-      let lines: string[] = [];
-      if (apiResult.source === "api" && apiResult.data?.daily) {
-        const d = apiResult.data.daily;
-        const units = (apiResult.data as any).daily_units || {};
-        const len = Math.min(
-          d.time?.length || 0,
-          d.temperature_2m_max?.length || 0,
-          d.temperature_2m_min?.length || 0,
-          d.weathercode?.length || 0
-        );
-        lines.push(`5-day Forecast - ${sanitized}`);
-        for (let i = 0; i < len; i++) {
-          const date = d.time[i];
-          const tmax = d.temperature_2m_max[i];
-          const tmin = d.temperature_2m_min[i];
-          const cond = getConditionLabel(d.weathercode[i]);
-          const unit = units.temperature_2m_max || "°C";
-          lines.push(
-            `${date}: min ${tmin}${
-              units.temperature_2m_min || unit
-            } / max ${tmax}${unit}, ${cond}`
-          );
-        }
-      } else if (apiResult.source === "mock" && Array.isArray(apiResult.data)) {
-        lines.push(`5-day Forecast - ${sanitized} (Mock)`);
-        for (const day of apiResult.data) {
-          lines.push(
-            `${day.date}: min ${day.temperature.min}°C / max ${day.temperature.max}°C, ${day.conditions}`
-          );
-        }
-      } else {
-        lines.push(`5-day Forecast - ${sanitized}: unavailable`);
-      }
-      if ((apiResult as any).note) {
-        lines.push(`Note: ${(apiResult as any).note}`);
-      }
-      return { content: [{ type: "text", text: lines.join("\n") }] };
-    }
-  );
-
-  server.registerTool(
-    "logs",
-    {
-      description: "📋 View service logs",
-      inputSchema: {},
-    },
-    async () => {
-      const logs = await getApiLogs();
-      return { content: [{ type: "text", text: logs }] };
+      // Build a friendly 5-day forecast summary using a helper
+      const text = formatForecast(apiResult, sanitized);
+      return { content: [{ type: "text", text }] };
     }
   );
 }
 
-// If this file is executed directly (node src/weather/service.js), create and
-// start a standalone server. When imported, callers should use
-// `registerWeatherTools(server)` to register the tools on their server.
-const isDirect = (() => {
+// Start the server if run directly
+(async function main() {
+  const server = new McpServer({
+    name: "weatherService",
+    version: "1.0.0",
+    description: "Weather MCP Service",
+  });
+  registerWeatherTools(server);
   try {
-    const href = pathToFileURL(process.argv[1]).href;
-    return import.meta.url === href;
-  } catch {
-    return false;
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("Weather MCP server running (stdio mode)");
+  } catch (err: any) {
+    console.error("Fatal error starting Weather MCP server:", err);
+    process.exit(1);
   }
 })();
-if (isDirect) {
-  // Create child logging only for the standalone child process
-  const childLogger = new Logger("WeatherService", "service-child.log");
-  childLogger.log("Weather MCP server starting (stdio mode)").catch(() => {});
-
-  process.on("uncaughtException", (err: any) => {
-    try {
-      console.error("Uncaught Exception:", err);
-      childLogger
-        .log(`uncaughtException: ${err && (err.stack || err)}`, "ERROR")
-        .catch(() => {});
-      try {
-        syncLog(`uncaughtException: ${err && (err.stack || err)}`);
-      } catch {}
-    } finally {
-      process.exit(1);
-    }
-  });
-
-  process.on("unhandledRejection", (reason: any) => {
-    console.error("Unhandled Rejection:", reason);
-    childLogger
-      .log(`unhandledRejection: ${JSON.stringify(reason)}`, "ERROR")
-      .catch(() => {});
-    try {
-      syncLog(`unhandledRejection: ${JSON.stringify(reason)}`);
-    } catch {}
-  });
-
-  process.on("exit", (code) => {
-    childLogger.log(`Process exiting with code ${code}`).catch(() => {});
-    try {
-      syncLog(`Process exiting with code ${code}`);
-    } catch {}
-  });
-
-  (async function main() {
-    const server = new McpServer({
-      name: "weatherService",
-      version: "1.0.0",
-      description: "Weather MCP Service",
-    });
-    registerWeatherTools(server);
-    try {
-      const transport = new StdioServerTransport();
-      await server.connect(transport);
-    } catch (err: any) {
-      console.error("Fatal error starting Weather MCP server:", err);
-      try {
-        syncLog(
-          `Fatal error starting Weather MCP server: ${
-            err && (err.stack || err)
-          }`
-        );
-      } catch {}
-      process.exit(1);
-    }
-  })();
-}

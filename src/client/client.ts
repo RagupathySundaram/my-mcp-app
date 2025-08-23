@@ -4,14 +4,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import * as readline from "readline";
 import "dotenv/config";
-import { Logger } from "../utils/logger.js";
 
 export async function startClient(spawnArgs?: {
   command?: string;
   args?: string[];
   cwd?: string;
 }) {
-  const logger = new Logger("MCPClient", "client.log");
   const transport = new StdioClientTransport({
     command:
       spawnArgs?.command ??
@@ -26,7 +24,6 @@ export async function startClient(spawnArgs?: {
   );
   await client.connect(transport);
   console.log("✅ Connected to MCP server\n");
-  await logger.log("Connected to MCP server", "CLIENT");
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -79,10 +76,6 @@ export async function startClient(spawnArgs?: {
       try {
         if (command === "weather" || command === "current") {
           const city = cityArg || defaultCity;
-          await logger.log(
-            `Calling tool: current with args: ${JSON.stringify({ city })}`,
-            "CLIENT"
-          );
           const result = await client.callTool({
             name: "current",
             arguments: { city },
@@ -92,15 +85,10 @@ export async function startClient(spawnArgs?: {
             : [];
           const text = items.find((c: any) => c.type === "text")?.text;
           console.log("\n" + (text || JSON.stringify(result, null, 2)));
-          await logger.log(`Result: ${JSON.stringify(result)}`, "CLIENT");
           continue;
         }
         if (command === "forecast") {
           const city = cityArg || defaultCity;
-          await logger.log(
-            `Calling tool: forecast with args: ${JSON.stringify({ city })}`,
-            "CLIENT"
-          );
           const result = await client.callTool({
             name: "forecast",
             arguments: { city },
@@ -110,7 +98,6 @@ export async function startClient(spawnArgs?: {
             : [];
           const text = items.find((c: any) => c.type === "text")?.text;
           console.log("\n" + (text || JSON.stringify(result, null, 2)));
-          await logger.log(`Result: ${JSON.stringify(result)}`, "CLIENT");
           continue;
         }
         if (command === "logs") {
@@ -124,7 +111,6 @@ export async function startClient(spawnArgs?: {
         );
       } catch (err: any) {
         console.error("❌ Error:", err);
-        await logger.log(`Error: ${err.message || err}`, "ERROR");
       }
     }
   } else if (targetingFile) {
@@ -201,7 +187,6 @@ export async function startClient(spawnArgs?: {
         );
       } catch (err: any) {
         console.error("❌ Error:", err);
-        await logger.log(`Error: ${err.message || err}`, "ERROR");
       }
     }
   } else {
@@ -209,14 +194,12 @@ export async function startClient(spawnArgs?: {
     console.log(
       "No interactive mode selected. Use: npm run client:weather or npm run client:file"
     );
-    await logger.log("No interactive mode selected; exiting", "CLIENT");
     rl.close();
     await client.close();
     return;
   }
 
   rl.close();
-  await logger.log("Client session ended", "CLIENT");
   await client.close();
   console.log("🔌 Disconnected");
   console.log("Logs written to logs/client.log");
@@ -227,8 +210,6 @@ const isDirect = import.meta.url === `file://${process.argv[1]}`;
 if (isDirect) {
   startClient().catch(async (err) => {
     console.error("❌ MCP client error:", err);
-    const logger = new Logger("MCPClient", "client.log");
-    await logger.log(`Fatal error: ${err.message || err}`, "ERROR");
     process.exit(1);
   });
 }
