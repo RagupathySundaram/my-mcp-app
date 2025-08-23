@@ -1,208 +1,27 @@
 {
   "servers": {
-    "fileSystem": {
-      "command": "npm run file-server",
+    "github-mcp": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp"
+    },
+    "weatherService": {
       "type": "stdio",
-      "endpoints": {
-        "read": {
-          "description": "📖 Read contents of a file",
-          "parameters": {
-            "path": {
-              "type": "string",
-              "description": "Path to the file to read"
-            }
-          },
-          "returns": {
-            "type": "object",
-            "properties": {
-              "content": { "type": "string" },
-              "formatting": {
-                "type": "object",
-                "properties": {
-                  "header": {
-                    "type": "string",
-                    "default": "📖 File Contents:"
-                  },
-                  "separator": {
-                    "type": "string",
-                    "default": "---------------"
-                  }
-                }
-              }
-            },
-            "description": "The contents of the file with formatting"
-          }
-        },
-        "list": {
-          "description": "📂 List contents of a directory with metadata",
-          "parameters": {
-            "path": {
-              "type": "string",
-              "description": "Path to the directory to list"
-            }
-          },
-          "returns": {
-            "type": "object",
-            "properties": {
-              "header": {
-                "type": "string",
-                "default": "📂 Directory Contents:"
-              },
-              "separator": {
-                "type": "string",
-                "default": "-------------------"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "icon": { "type": "string", "default": "📄" },
-                    "name": { "type": "string" },
-                    "size": { "type": "number" },
-                    "created": { "type": "string" },
-                    "modified": { "type": "string" },
-                    "isDirectory": { "type": "boolean" },
-                    "isFile": { "type": "boolean" },
-                    "path": { "type": "string" }
-                  }
-                }
-              }
-            },
-            "description": "List of files and directories with formatting"
-          }
-        },
-        "search": {
-          "description": "🔍 Search for files in a directory",
-          "parameters": {
-            "path": {
-              "type": "string",
-              "description": "Directory to search in"
-            },
-            "pattern": {
-              "type": "string",
-              "description": "Search pattern to match against file names"
-            }
-          },
-          "returns": {
-            "type": "object",
-            "properties": {
-              "header": { "type": "string", "default": "🔍 Search Results:" },
-              "separator": { "type": "string", "default": "---------------" },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "icon": { "type": "string", "default": "📄" },
-                    "name": { "type": "string" },
-                    "path": { "type": "string" }
-                  }
-                }
-              }
-            },
-            "description": "List of matching files with formatting"
-          }
-        },
-        "logs": {
-          "description": "📋 View server logs",
-          "parameters": {},
-          "returns": {
-            "type": "object",
-            "properties": {
-              "header": { "type": "string", "default": "📋 Server Logs:" },
-              "separator": { "type": "string", "default": "-------------" },
-              "content": { "type": "string" }
-            },
-            "description": "Server log contents with formatting"
-          }
-        }
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\ragup\\myworkspace\\my-mcp-app\\build\\weather\\service.js"
+      ],
+      "env": {
+        "NODE_NO_WARNINGS": "1",
+        "DOTENV_CONFIG_PATH": "C:\\Users\\ragup\\myworkspace\\my-mcp-app\\.env"
       }
     },
-
-    "weatherService": {
-      "command": "C:\\Program Files\\nodejs\\node.exe",
-      "args": ["build\\weather\\service.js"],
+    "fileSystem": {
       "type": "stdio",
-      "endpoints": {
-        "health": {
-          "description": "✅ Service health check",
-          "parameters": {},
-          "returns": {
-            "type": "object",
-            "properties": {
-              "status": { "type": "string" },
-              "service": { "type": "string" },
-              "port": { "type": "number" }
-            }
-          }
-        },
-        "current": {
-          "description": "🌡️ Get current weather (service). Returns { source, note?, data }",
-          "parameters": {
-            "city": { "type": "string", "description": "City name" }
-          },
-          "returns": {
-            "type": "object",
-            "properties": {
-              "source": { "type": "string" },
-              "note": { "type": "string" },
-              "data": {
-                "type": "object",
-                "properties": {
-                  "city": { "type": "string" },
-                  "temperature": { "type": ["number", "null"] },
-                  "windSpeed": { "type": ["number", "null"] },
-                  "windDirection": { "type": ["number", "null"] },
-                  "conditions": { "type": ["string", "null"] },
-                  "time": { "type": ["string", "null"] },
-                  "humidity": { "type": ["number", "null"] }
-                }
-              }
-            }
-          }
-        },
-        "forecast": {
-          "description": "📅 Get 5-day forecast (service). Returns { source, note?, data }",
-          "parameters": {
-            "city": { "type": "string", "description": "City name" }
-          },
-          "returns": {
-            "type": "object",
-            "properties": {
-              "source": { "type": "string" },
-              "note": { "type": "string" },
-              "data": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "date": { "type": "string" },
-                    "temperature": {
-                      "type": "object",
-                      "properties": {
-                        "min": { "type": ["number", "null"] },
-                        "max": { "type": ["number", "null"] }
-                      }
-                    },
-                    "conditions": { "type": ["string", "null"] }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "logs": {
-          "description": "📋 View service logs",
-          "parameters": {},
-          "returns": {
-            "type": "object",
-            "properties": {
-              "content": { "type": "string" }
-            }
-          }
-        }
-      }
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\ragup\\myworkspace\\my-mcp-app\\build\\fileServer\\server.js"
+      ],
+      "env": { "NODE_NO_WARNINGS": "1" }
     }
   }
 }

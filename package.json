@@ -1,7 +1,6 @@
 {
   "name": "my-mcp-app",
   "version": "1.0.0",
-  "main": "index.js",
   "type": "module",
   "files": [
     "build"
@@ -9,11 +8,14 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "format": "prettier --write .",
-    "weather-client": "npm run build && node build/weather/client.js",
-    "weather-service": "npm run build && node build/weather/service.js",
+    "weather-server": "npm run build && node build/weather/service.js",
     "file-server": "npm run build && node build/fileServer/server.js",
-    "file-client": "npm run build && node build/fileServer/client.js"
+    "client:weather": "npm run build && set MCP_CLIENT_WEATHER_MODE=1 && node -e \"import('./build/client/client.js').then(m=>m.startClient({command:'node',args:['build/weather/service.js']}))\"",
+    "client:file": "npm run build && set MCP_CLIENT_FILE_MODE=1 && node -e \"import('./build/client/client.js').then(m=>m.startClient({command:'node',args:['build/fileServer/server.js']}))\"",
+    "inspect:stdio:weather": "npx @modelcontextprotocol/inspector node ./build/weather/service.js",
+    "inspect:stdio:file": "npx @modelcontextprotocol/inspector node ./build/fileServer/server.js",
+    "clean": "cmd /C \"if exist build rmdir /S /Q build & if exist logs rmdir /S /Q logs\"",
+    "clean:build": "npm run clean && prettier --write . && npm run build"
   },
   "keywords": [],
   "author": "",
@@ -23,7 +25,6 @@
     "@modelcontextprotocol/sdk": "^1.17.0",
     "dotenv": "^16.3.1",
     "node-fetch": "^3.3.2",
-    "readline": "^1.3.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

@@ -1,7 +1,10 @@
-import * as http from "http";
+import { z } from "zod";
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as fs from "fs/promises";
-import * as url from "url";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import { Logger } from "../utils/logger.js";
 
 const logger = new Logger("FileServer", "file-server.log");
@@ -35,7 +38,6 @@ async function searchFiles(
 ): Promise<FileMetadata[]> {
   const results: FileMetadata[] = [];
   const files = await fs.readdir(directory, { withFileTypes: true });
-
   for (const file of files) {
     const fullPath = path.join(directory, file.name);
     if (file.name.toLowerCase().includes(pattern.toLowerCase())) {
@@ -48,84 +50,153 @@ async function searchFiles(
   return results;
 }
 
-const server = http.createServer(async (req, res) => {
-  const parsedUrl = url.parse(req.url || "", true);
-  const reqPath = parsedUrl.query.path as string;
-  const pattern = parsedUrl.query.pattern as string;
-
-  await logger.log(
-    `Received ${parsedUrl.pathname} request for path: ${reqPath || "none"}`,
-    "ACCESS"
-  );
-
-  // Health check endpoint
-  if (parsedUrl.pathname === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
-    return;
-  }
-
-  if (!reqPath && parsedUrl.pathname !== "/logs") {
-    res.writeHead(400);
-    res.end("Path parameter is required");
-    await logger.log("Error: No path parameter provided", "ERROR");
-    return;
-  }
-
-  try {
-    if (parsedUrl.pathname === "/read") {
-      const content = await fs.readFile(reqPath, "utf-8");
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(content);
-      await logger.log(`Successfully read file: ${reqPath}`, "INFO");
-    } else if (parsedUrl.pathname === "/list") {
-      const files = await fs.readdir(reqPath, { withFileTypes: true });
-      const fileDetails = await Promise.all(
-        files.map((file) => getFileMetadata(path.join(reqPath, file.name)))
-      );
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(fileDetails, null, 2));
-      await logger.log(`Successfully listed directory: ${reqPath}`, "INFO");
-    } else if (parsedUrl.pathname === "/search") {
-      if (!pattern) {
-        throw new Error("Search pattern is required");
-      }
-      const results = await searchFiles(reqPath, pattern);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(results, null, 2));
-      await logger.log(`Searched for "${pattern}" in ${reqPath}`, "INFO");
-    } else if (parsedUrl.pathname === "/logs") {
-      const logFile = path.join("logs", "server.log");
-      try {
-        const logs = await fs.readFile(logFile, "utf-8");
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end(logs);
-        await logger.log("Logs viewed", "INFO");
-      } catch (error) {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("No logs found or log file not accessible");
-      }
-    } else {
-      res.writeHead(404);
-      res.end("Not found");
-      await logger.log(`404: Invalid endpoint ${parsedUrl.pathname}`, "ERROR");
+export function registerFileTools(server: McpServer) {
+  server.tool(
+    "read",
+    "Read contents of a file",
+    {
+      path: z.string().describe("Path to the file to read"),
+    },
+    async ({ path }) => {
+      const content = await fs.readFile(path, "utf-8");
+      await logger.log(`Successfully read file: ${path}`, "INFO");
+      return {
+        content: [
+          {
+            type: "text",
+            text: content,
+          },
+        ],
+      };
     }
-  } catch (error: any) {
-    const errorMessage = `Error: ${error.message}`;
-    res.writeHead(500);
-    res.end(errorMessage);
-    await logger.log(`Error occurred: ${errorMessage}`, "ERROR");
-  }
-});
-
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`File Server running at http://localhost:${PORT}`);
-  console.log("Available endpoints:");
-  console.log("- GET  /read?path=<filepath>           - Read file contents");
-  console.log(
-    "- GET  /list?path=<dirpath>           - List directory contents with metadata"
   );
-  console.log("- GET  /search?path=<dir>&pattern=<pattern> - Search files");
-  console.log("- GET  /logs                          - View server logs");
-});
+
+  server.tool(
+    "list",
+    "List contents of a directory with metadata",
+    {
+      path: z.string().describe("Path to the directory to list"),
+    },
+    async ({ path: inputPath }) => {
+      const dir = (inputPath || "").toString().trim();
+      const absDir = path.resolve(dir);
+      const files = await fs.readdir(absDir, { withFileTypes: true });
+      const fileList = await Promise.all(
+        files.map(
+          async (file) => await getFileMetadata(path.join(absDir, file.name))
+        )
+      );
+      await logger.log(`Listed directory: ${absDir}`, "INFO");
+      // Format into simple, readable lines
+      const human = (n: number) => {
+        if (n < 1024) return `${n} B`;
+        const units = ["KB", "MB", "GB", "TB"];
+        let i = -1;
+        let v = n;
+        do {
+          v = v / 1024;
+          i++;
+        } while (v >= 1024 && i < units.length - 1);
+        return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+      };
+      const lines: string[] = [];
+      lines.push(`Directory: ${absDir}`);
+      lines.push(`Items: ${fileList.length}`);
+      for (const f of fileList) {
+        const tag = f.isDirectory ? "DIR " : "FILE";
+        const name = f.isDirectory ? `${f.name}/` : f.name;
+        const size = f.isDirectory ? "-" : human(f.size);
+        lines.push(
+          `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}`
+        );
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  server.tool(
+    "search",
+    "Search for files in a directory",
+    {
+      path: z.string().describe("Directory to search in"),
+      pattern: z
+        .string()
+        .describe("Search pattern to match against file names"),
+    },
+    async ({ path: inputPath, pattern }) => {
+      const dir = (inputPath || "").toString().trim();
+      const absDir = path.resolve(dir);
+      const results = await searchFiles(absDir, pattern || "");
+      await logger.log(
+        `Searched files in: ${absDir} for pattern: ${pattern}`,
+        "INFO"
+      );
+      const lines: string[] = [];
+      lines.push(`Search in: ${absDir}`);
+      lines.push(`Pattern: ${pattern || ""}`);
+      lines.push(`Matches: ${results.length}`);
+      const human = (n: number) => {
+        if (n < 1024) return `${n} B`;
+        const units = ["KB", "MB", "GB", "TB"];
+        let i = -1;
+        let v = n;
+        do {
+          v = v / 1024;
+          i++;
+        } while (v >= 1024 && i < units.length - 1);
+        return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+      };
+      for (const f of results) {
+        const tag = f.isDirectory ? "DIR " : "FILE";
+        const name = f.isDirectory ? `${f.name}/` : f.name;
+        const size = f.isDirectory ? "-" : human(f.size);
+        lines.push(
+          `- [${tag}] ${name}  size: ${size}  modified: ${f.modified}  path: ${f.path}`
+        );
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // Use a namespaced tool name to avoid collisions with other services
+  server.tool("file_logs", "View file server logs", {}, async () => {
+    const logContent = await logger.readLogs();
+    return {
+      content: [
+        {
+          type: "text",
+          text: logContent,
+        },
+      ],
+    };
+  });
+}
+
+// If executed directly, start a standalone file server process
+const isDirect = (() => {
+  try {
+    const href = pathToFileURL(process.argv[1]).href;
+    return import.meta.url === href;
+  } catch {
+    return false;
+  }
+})();
+if (isDirect) {
+  (async function main() {
+    const server = new McpServer({
+      name: "fileSystem",
+      version: "1.0.0",
+      capabilities: {
+        resources: {},
+        tools: {},
+      },
+    });
+    registerFileTools(server);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("File MCP Server running on stdio");
+  })().catch((error) => {
+    console.error("Fatal error in main():", error);
+    process.exit(1);
+  });
+}

@@ -1,238 +1,264 @@
-import * as http from "http";
-import * as url from "url";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-dotenv.config();
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 import { getMockCurrent, getMockForecast, getMockLogs } from "./mockData.js";
-import {
-  getLatLon,
-  fetchCurrent,
-  fetchForecast,
-  getApiLogs,
-} from "./apiServices.js";
+import { fetchCurrent, fetchForecast, getApiLogs } from "./apiServices.js";
+import { Logger } from "../utils/logger.js";
+import * as fs from "fs";
+import * as path from "path";
+import { pathToFileURL } from "url";
+import { getConditionLabel } from "../utils/weatherCodes.js";
 
-// Embedding mock data in this single server; no separate mock process required
-const PORT = Number(process.env.PORT) || 3001; // single server lives on 3001
-
-async function fetchWithTimeout(
-  urlStr: string,
-  timeoutMs = 3000
-): Promise<any> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+// Synchronous fallback logger file used when running as a child process.
+const syncLogFile = path.join("logs", "service-child.log");
+function syncLog(message: string) {
   try {
-    const resp = await fetch(urlStr, { signal: controller.signal } as any);
-    return resp;
-  } finally {
-    clearTimeout(id);
-  }
+    const now = new Date();
+    const timestamp = now.toISOString();
+    const entry = `[${timestamp}] [ERROR] [WeatherService] ${message} (${now.toLocaleString()})\n`;
+    try {
+      fs.mkdirSync(path.dirname(syncLogFile), { recursive: true });
+    } catch {}
+    fs.appendFileSync(syncLogFile, entry, { encoding: "utf8" });
+  } catch {}
 }
 
-type AsyncFetcher = () => Promise<any>;
-
-async function tryWithRetries(
-  pathOrFn: string | AsyncFetcher,
-  attempts = 3,
-  timeoutMs = 3000
-) {
-  let lastErr: any = null;
-  for (let i = 0; i < attempts; i++) {
+const withApiRetry = async <T>(
+  fn: () => Promise<T>,
+  fallback: () => T,
+  note: string
+): Promise<T> => {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
     try {
-      if (typeof pathOrFn === "string") {
-        const resp = await fetchWithTimeout(pathOrFn, timeoutMs);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        return data;
-      } else {
-        // call the provided async function directly
-        const data = await pathOrFn();
-        return data;
-      }
-    } catch (err: any) {
+      return await fn();
+    } catch (err) {
       lastErr = err;
-      // log attempt failure for diagnostics
-      console.error(
-        `tryWithRetries attempt ${i + 1} failed:`,
-        err && err.message ? err.message : String(err)
-      );
-      // small backoff
-      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
     }
   }
-  throw lastErr;
-}
-
-const server = http.createServer(async (req, res) => {
-  const parsed = url.parse(req.url || "", true);
-
-  if (parsed.pathname === "/current" || parsed.pathname === "/forecast") {
-  const rawCity = (parsed.query.city as string) || '';
-  // sanitize common natural-language prefixes (e.g. "in Spain", "at Tokyo")
-  const city = rawCity.replace(/^\s*(in|at|near|in the)\b\s*/i, '').trim();
-    if (!city) {
-      res.writeHead(400);
-      res.end("City parameter is required");
-      return;
-    }
-    try {
-      // quick geocode check to fail fast when city is not found (avoid retrying on 'City not found')
-      // Log raw vs sanitized to aid debugging of user input like "weather in Spain"
-      console.debug(`service: geocode request raw='${rawCity}' sanitized='${city}'`);
-      let coords: { lat: number; lon: number } | null = null;
+  const result = fallback();
+  if (typeof result === "object" && result !== null) {
+    (result as any).note = note;
+  }
+  return result;
+};
+export function registerWeatherTools(server: McpServer) {
+  server.registerTool(
+    "current",
+    {
+      inputSchema: {
+        city: z.string().describe("City name"),
+      },
+    },
+    async ({ city }: { city: string }) => {
+      if (!city) throw new Error("City parameter is required");
+      const sanitized = city.replace(/^(in|at|near|in the)\b\s*/i, "").trim();
+      let apiResult;
       try {
-        coords = await getLatLon(city);
+        apiResult = await withApiRetry(
+          async () => {
+            const data = await fetchCurrent(sanitized);
+            return { source: "api", data };
+          },
+          () => {
+            throw new Error("API failed after retries");
+          },
+          "No real data, this is a Mock Response"
+        );
       } catch (e) {
-        // network/geocode error — let the retry logic handle it below
-        coords = null;
+        apiResult = {
+          source: "mock",
+          note: "No real data, this is a Mock Response",
+          data: getMockCurrent(sanitized),
+        };
       }
-      if (!coords) {
-        // Geocoding returned nothing — instead of returning 404 to the client
-        // we treat this as an upstream miss and return mock data so the client
-        // still receives a result (preserves UX). Log for diagnostics.
-        console.info(
-          `service: geocode miss for '${city}', returning mock data`
-        );
-        const data =
-          parsed.pathname === "/current"
-            ? getMockCurrent(city)
-            : getMockForecast(city);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            source: "weatherMock",
-            note: "Unable to Get Real data as of now — This is Mock data not real",
-            data,
-          })
-        );
-        return;
+      // Build a friendly text summary
+      let text: string;
+      if (apiResult.source === "api" && apiResult.data?.current_weather) {
+        const cw = apiResult.data.current_weather;
+        const units = apiResult.data.current_weather_units || {};
+        const cond = getConditionLabel(cw.weathercode);
+        const isDay = cw.is_day ? "Day" : "Night";
+        text = [
+          `Weather - ${sanitized}`,
+          `Time: ${cw.time} (${isDay})`,
+          `Temperature: ${cw.temperature}${units.temperature || "°C"}`,
+          `Condition: ${cond}`,
+          `Wind: ${cw.windspeed}${units.windspeed || " km/h"} @ ${
+            cw.winddirection
+          }°`,
+        ].join("\n");
+      } else if (apiResult.source === "mock") {
+        const d = apiResult.data;
+        text = [
+          `Weather - ${sanitized} (Mock)`,
+          `Temperature: ${d.temperature}°C`,
+          `Condition: ${d.conditions}`,
+          `Humidity: ${d.humidity}%`,
+          `Wind: ${d.windSpeed} km/h`,
+        ].join("\n");
+      } else {
+        text = `Weather - ${sanitized}: unavailable`;
       }
+      if ((apiResult as any).note) {
+        text += `\nNote: ${(apiResult as any).note}`;
+      }
+      return { content: [{ type: "text", text }] };
+    }
+  );
 
+  server.registerTool(
+    "forecast",
+    {
+      description:
+        "📅 Get 5-day forecast (service). Returns { source, note?, data }",
+      inputSchema: {
+        city: z.string().describe("City name"),
+      },
+    },
+    async ({ city }: { city: string }) => {
+      if (!city) throw new Error("City parameter is required");
+      const sanitized = city.replace(/^(in|at|near|in the)\b\s*/i, "").trim();
+      let apiResult;
       try {
-        const raw =
-          parsed.pathname === "/current"
-            ? await tryWithRetries(
-                (() => fetchCurrent(city)) as AsyncFetcher,
-                3,
-                3000
-              )
-            : await tryWithRetries(
-                (() => fetchForecast(city)) as AsyncFetcher,
-                3,
-                3000
-              );
-        const data =
-          parsed.pathname === "/current"
-            ? normalizeApiCurrent(raw)
-            : normalizeApiForecast(raw);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ source: "weatherApi", data }));
-        return;
-      } catch (apiErr: any) {
-        // API failed after retries, log and fallback to mock data functions
-        console.error(
-          "API failed after retries, falling back to mock. Error:",
-          apiErr && apiErr.message ? apiErr.message : String(apiErr)
+        apiResult = await withApiRetry(
+          async () => {
+            const data = await fetchForecast(sanitized);
+            return { source: "api", data };
+          },
+          () => {
+            throw new Error("API failed after retries");
+          },
+          "No real data, this is a Mock Response"
         );
-        const data =
-          parsed.pathname === "/current"
-            ? getMockCurrent(city)
-            : getMockForecast(city);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            source: "weatherMock",
-            note: "Unable to Get Real data as of now — This is Mock data not real",
-            data,
-          })
+      } catch (e) {
+        apiResult = {
+          source: "mock",
+          note: "No real data, this is a Mock Response",
+          data: getMockForecast(sanitized),
+        };
+      }
+      // Build a friendly 5-day forecast summary
+      let lines: string[] = [];
+      if (apiResult.source === "api" && apiResult.data?.daily) {
+        const d = apiResult.data.daily;
+        const units = (apiResult.data as any).daily_units || {};
+        const len = Math.min(
+          d.time?.length || 0,
+          d.temperature_2m_max?.length || 0,
+          d.temperature_2m_min?.length || 0,
+          d.weathercode?.length || 0
         );
-        return;
+        lines.push(`5-day Forecast - ${sanitized}`);
+        for (let i = 0; i < len; i++) {
+          const date = d.time[i];
+          const tmax = d.temperature_2m_max[i];
+          const tmin = d.temperature_2m_min[i];
+          const cond = getConditionLabel(d.weathercode[i]);
+          const unit = units.temperature_2m_max || "°C";
+          lines.push(
+            `${date}: min ${tmin}${
+              units.temperature_2m_min || unit
+            } / max ${tmax}${unit}, ${cond}`
+          );
+        }
+      } else if (apiResult.source === "mock" && Array.isArray(apiResult.data)) {
+        lines.push(`5-day Forecast - ${sanitized} (Mock)`);
+        for (const day of apiResult.data) {
+          lines.push(
+            `${day.date}: min ${day.temperature.min}°C / max ${day.temperature.max}°C, ${day.conditions}`
+          );
+        }
+      } else {
+        lines.push(`5-day Forecast - ${sanitized}: unavailable`);
       }
-    } catch (err: any) {
-      res.writeHead(500);
-      res.end(`Error: ${err.message}`);
-      return;
-    }
-  }
-
-  // Health endpoint for client health checks
-  if (parsed.pathname === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        status: "ok",
-        service: "weather-service",
-        port: Number(PORT),
-      })
-    );
-    return;
-  }
-
-  if (parsed.pathname === "/logs") {
-    try {
-      const logs = await getApiLogs().catch(() => null);
-      if (logs) {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end(logs);
-        return;
+      if ((apiResult as any).note) {
+        lines.push(`Note: ${(apiResult as any).note}`);
       }
-      // fallback to mock data logs function
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end(getMockLogs());
-      return;
-    } catch (err: any) {
-      res.writeHead(500);
-      res.end(
-        `Error reading logs: ${err && err.message ? err.message : String(err)}`
-      );
-      return;
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
-  }
-
-  res.writeHead(404);
-  res.end("Not found");
-});
-
-server.listen(Number(PORT), () => {
-  console.log(`Weather Service running at http://localhost:${PORT}`);
-  console.log(
-    "- GET  /current?city=<cityname>    - Returns { source, note?, data }"
   );
-  console.log(
-    "- GET  /forecast?city=<cityname>   - Returns { source, note?, data }"
-  );
-  console.log(
-    "- GET  /logs                       - Returns logs from API or mock"
-  );
-});
 
-// Normalize API responses (Open-Meteo shape -> common shape)
-function normalizeApiCurrent(raw: any) {
-  const cw = raw.current_weather || raw;
-  return {
-    city: raw.city || cw?.city || "Unknown",
-    temperature: cw?.temperature ?? cw?.temp ?? null,
-    windSpeed: cw?.windspeed ?? cw?.windSpeed ?? null,
-    windDirection: cw?.winddirection ?? null,
-    conditions:
-      cw?.conditions ??
-      (cw?.weathercode != null ? `code:${cw.weathercode}` : null),
-    time: cw?.time ?? null,
-  };
+  server.registerTool(
+    "logs",
+    {
+      description: "📋 View service logs",
+      inputSchema: {},
+    },
+    async () => {
+      const logs = await getApiLogs();
+      return { content: [{ type: "text", text: logs }] };
+    }
+  );
 }
 
-function normalizeApiForecast(raw: any) {
-  const daily = raw.daily || raw;
-  const times = daily.time || daily?.time || [];
-  const maxs = daily.temperature_2m_max || [];
-  const mins = daily.temperature_2m_min || [];
-  const codes = daily.weathercode || [];
-  const out: any[] = [];
-  for (let i = 0; i < times.length; i++) {
-    out.push({
-      date: times[i],
-      temperature: { min: mins[i] ?? null, max: maxs[i] ?? null },
-      conditions: codes[i] != null ? `code:${codes[i]}` : null,
-    });
+// If this file is executed directly (node src/weather/service.js), create and
+// start a standalone server. When imported, callers should use
+// `registerWeatherTools(server)` to register the tools on their server.
+const isDirect = (() => {
+  try {
+    const href = pathToFileURL(process.argv[1]).href;
+    return import.meta.url === href;
+  } catch {
+    return false;
   }
-  return out;
+})();
+if (isDirect) {
+  // Create child logging only for the standalone child process
+  const childLogger = new Logger("WeatherService", "service-child.log");
+  childLogger.log("Weather MCP server starting (stdio mode)").catch(() => {});
+
+  process.on("uncaughtException", (err: any) => {
+    try {
+      console.error("Uncaught Exception:", err);
+      childLogger
+        .log(`uncaughtException: ${err && (err.stack || err)}`, "ERROR")
+        .catch(() => {});
+      try {
+        syncLog(`uncaughtException: ${err && (err.stack || err)}`);
+      } catch {}
+    } finally {
+      process.exit(1);
+    }
+  });
+
+  process.on("unhandledRejection", (reason: any) => {
+    console.error("Unhandled Rejection:", reason);
+    childLogger
+      .log(`unhandledRejection: ${JSON.stringify(reason)}`, "ERROR")
+      .catch(() => {});
+    try {
+      syncLog(`unhandledRejection: ${JSON.stringify(reason)}`);
+    } catch {}
+  });
+
+  process.on("exit", (code) => {
+    childLogger.log(`Process exiting with code ${code}`).catch(() => {});
+    try {
+      syncLog(`Process exiting with code ${code}`);
+    } catch {}
+  });
+
+  (async function main() {
+    const server = new McpServer({
+      name: "weatherService",
+      version: "1.0.0",
+      description: "Weather MCP Service",
+    });
+    registerWeatherTools(server);
+    try {
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+    } catch (err: any) {
+      console.error("Fatal error starting Weather MCP server:", err);
+      try {
+        syncLog(
+          `Fatal error starting Weather MCP server: ${
+            err && (err.stack || err)
+          }`
+        );
+      } catch {}
+      process.exit(1);
+    }
+  })();
 }

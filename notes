@@ -1,0 +1,12 @@
+If you see “PORT IS IN USE,” close previous inspector sessions or free the port. On Windows:
+Find PID: netstat -ano | findstr :6277
+Kill: taskkill /PID <PID> /F
+
+Ask: What tools are available?
+Weather: Use weatherService.current with {"city":"Chennai"}
+File list: Use fileSystem.list with {"path":"sample"}
+
+
+“Using weatherService, show current weather for Chennai.”
+“Using fileSystem, list files in sample/data.”
+“Using github-mcp, list my GitHub repos.”

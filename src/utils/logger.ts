@@ -1,4 +1,5 @@
 import * as fs from "fs/promises";
+import "dotenv/config";
 import * as path from "path";
 
 export type LogType = "INFO" | "ERROR" | "ACCESS" | "FILE_CLIENT" | "CLIENT";
